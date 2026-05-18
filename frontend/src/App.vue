@@ -80,7 +80,7 @@
             <input 
               type="tel" 
               v-model="searchPhone" 
-              placeholder="010-0000-0000" 
+              placeholder="01012345678" 
               @keyup.enter="lookupReservations" 
             />
             <button class="search-btn" @click="lookupReservations" :disabled="lookupLoading">조회하기</button>
