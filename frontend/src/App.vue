@@ -115,8 +115,8 @@
             </div>
             <div class="modal-form">
               <div class="input-block"><label>이름</label><input type="text" v-model="userName" placeholder="홍길동" ref="nameInput" /></div>
-              <div class="input-block"><label>부서</label><input type="text" v-model="userDept" placeholder="인사팀 / 개발팀" /></div>
-              <div class="input-block"><label>연락처</label><input type="tel" v-model="userPhone" placeholder="010-1234-5678" /></div>
+              <div class="input-block"><label>부서</label><input type="text" v-model="userDept" placeholder="경영지원팀" /></div>
+              <div class="input-block"><label>휴대폰번호</label><input type="tel" v-model="userPhone" placeholder="010-1234-5678" /></div>
             </div>
             <div class="modal-buttons">
               <button class="cancel-btn" @click="closeModal">취소</button>
