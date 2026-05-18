@@ -3,7 +3,8 @@
     <div class="content-wrapper">
       
       <header class="survey-header">
-        <h1 class="main-title">💆 사내 마사지 예약</h1>
+        <h1 class="main-title">[EAP 웰니스 프로그램]</h1>
+        <h1 class="main-title">피지컬 테라피 예약</h1>
         <h2 class="sub-title-1">원하시는 메뉴를 선택하여 예약 또는 조회를 진행해 주세요.</h2>
       </header>
 
