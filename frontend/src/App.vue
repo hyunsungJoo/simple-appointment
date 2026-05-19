@@ -10,11 +10,11 @@
 
       <div class="tab-container">
         <button :class="{ active: currentTab === 'reserve' }" @click="currentTab = 'reserve'">📅 예약하기</button>
-        <button :class="{ active: currentTab === 'lookup' }" @click="currentTab = 'lookup'">🔍 나의 예약 조회</button>
+        <button :class="{ active: currentTab === 'lookup' }" @click="currentTab = 'lookup'">🔍 나의 예약 조회/취소</button>
       </div>
 
       <div v-if="currentTab === 'reserve'">
-        <div v-if="globalLoading" class="loading-status">데이터를 안전하게 동기화 중입니다. 잠시만 기다려 주세요...</div>
+        <div v-if="globalLoading" class="loading-status">화면을 불러오는 중입니다. 잠시만 기다려 주세요...</div>
 
         <div v-else>
           <section class="section">
@@ -74,34 +74,41 @@
       <div v-if="currentTab === 'lookup'" class="lookup-section">
         <section class="section">
           <div class="section-title">
-            <h3>🔍 등록하신 연락처를 입력해 주세요</h3>
+            <h3>🔍 등록하신 예약자 성명을 입력해 주세요</h3>
           </div>
           
           <div class="search-box">
             <input 
-              type="tel" 
-              v-model="searchPhone" 
-              placeholder="01012345678" 
+              type="text" 
+              v-model="searchName" 
+              placeholder="홍길동" 
               @keyup.enter="lookupReservations" 
             />
             <button class="search-btn" @click="lookupReservations" :disabled="lookupLoading">조회하기</button>
           </div>
 
-          <div v-if="lookupLoading" class="loading-status">예약 명단을 매칭하는 중입니다...</div>
+          <div v-if="lookupLoading" class="loading-status">예약 명단을 확인하는 중입니다...</div>
           
           <div v-else>
             <div v-if="lookupResults.length > 0" class="results-container">
-              <div v-for="(res, index) in lookupResults" :key="index" class="rating-item result-card">
-                <div class="emoji">💆</div>
+              <div 
+                v-for="(res, index) in lookupResults" 
+                :key="index" 
+                :class="['rating-item', 'result-card', { 'is-cancelled-card': res.isCancelled }]"
+              >
+                <div class="emoji">{{ res.isCancelled ? '❌' : '💆' }}</div>
                 <div class="content-box">
                   <div class="text">{{ formatDate(res.date) }} (금)</div>
                   <div class="time-text">{{ res.time }}</div>
                   <div class="score">{{ res.name }}님 ({{ res.dept }})</div>
+                  
+                  <div v-if="res.isCancelled" class="cancel-badge">취소완료</div>
+                  <button v-else class="card-cancel-btn" @click="cancelReservation(res)">취소하기</button>
                 </div>
               </div>
             </div>
             <div v-else-if="hasSearched" class="empty-msg">
-              입력하신 연락처로 등록된 예약 내역이 없습니다.
+              입력하신 성명으로 등록된 예약 내역이 없습니다.
             </div>
           </div>
         </section>
@@ -135,18 +142,16 @@
 import { ref, onMounted, nextTick } from 'vue';
 import axios from 'axios';
 
-const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw2P4xTA2RdXLoQ8Z8wF9uG13-t78LDxaWFFVebGLMYJsPSArpW6Wotw9ThA5qSScWutA/exec';
+const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzs2zJlIuQXD5K4kUWyNYTSYQX-PrJsvoQiROKhSaYlhkUWkvFlo6ToIX7RWqM8AXYR/exec';
 
-// 현재 선택된 탭 ('reserve' = 예약하기, 'lookup' = 예약조회)
 const currentTab = ref('reserve');
 
-// 조회 기능 전용 상태값
-const searchPhone = ref('');
+// 💡 이름 기반 조회 전용 상태값으로 교체
+const searchName = ref('');
 const lookupResults = ref([]);
 const lookupLoading = ref(false);
 const hasSearched = ref(false);
 
-// 기존 상태값 유지
 const userName = ref('');
 const userDept = ref('');
 const userPhone = ref('');
@@ -170,7 +175,6 @@ const openModal = () => {
 };
 const closeModal = () => { showModal.value = false; };
 
-// 전체 예약 리스트 로드
 const fetchReservations = async (isSilent = false) => {
   try {
     if (!isSilent) globalLoading.value = true;
@@ -183,18 +187,16 @@ const fetchReservations = async (isSilent = false) => {
   }
 };
 
-// 💡 [신규] 특정 개인 예약 조회 함수
+// 💡 이름 기반으로 GET 요청을 보내도록 변경
 const lookupReservations = async () => {
-  if (!searchPhone.value.trim()) return;
-  
+  if (!searchName.value.trim()) return;
   try {
     lookupLoading.value = true;
     hasSearched.value = true;
     
-    // 하이픈, 공백을 모두 제거하고 오직 '숫자만' 추출해서 파라미터로 전송
-    const cleanPhone = searchPhone.value.replace(/[^0-9]/g, '');
-    
-    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?phone=${cleanPhone}`);
+    // 공백을 제거한 순수 텍스트 성명 전송 (CORS 안전 인코딩 적용)
+    const cleanName = searchName.value.trim();
+    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?name=${encodeURIComponent(cleanName)}`);
     lookupResults.value = response.data;
   } catch (error) {
     console.error('예약 조회 실패:', error);
@@ -204,7 +206,39 @@ const lookupReservations = async () => {
   }
 };
 
-// 신규 예약 등록
+// 이름 + 날짜 + 시간 3단 조합으로 구글 웹 앱 매칭 취소 요청
+const cancelReservation = async (res) => {
+  if (!confirm(`🚨 [예약 취소]\n${formatDate(res.date)} (금) ${res.time} 예약을 취소하시겠습니까?`)) return;
+  
+  try {
+    lookupLoading.value = true;
+    const payload = {
+      action: 'cancel',
+      name: res.name, // 💡 번호 대신 이름을 전송
+      date: res.date,
+      time: res.time
+    };
+
+    const response = await axios.post(GOOGLE_WEB_APP_URL, JSON.stringify(payload), {
+      headers: { 'Content-Type': 'text/plain' }
+    });
+
+    if (response.data && response.data.result === 'success') {
+      alert('❌ 예약이 성공적으로 취소처리 되었습니다.');
+      await lookupReservations(); // 내가 검색한 이름 목록 새로고침
+      await fetchReservations(true); // 달력 새로고침
+    } else {
+      alert(`⚠️ 취소 실패: ${response.data.message || '서버 매칭 오류'}`);
+    }
+
+  } catch (error) {
+    console.error('예약 취소 오류:', error);
+    alert('취소 처리에 실패했습니다. 다시 시도해 주세요.');
+  } finally {
+    lookupLoading.value = false;
+  }
+};
+
 const submitReservation = () => {
   if (!selectedDate.value || !selectedTime.value || !userName.value.trim() || !userDept.value.trim() || !userPhone.value.trim()) return;
   
@@ -271,85 +305,45 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 💡 상단 메뉴 탭 컨테이너 디자인 */
-.tab-container {
-  display: flex;
-  justify-content: center;
-  gap: 15px;
-  margin-bottom: 40px;
-}
+.tab-container { display: flex; justify-content: center; gap: 15px; margin-bottom: 40px; }
 .tab-container button {
-  padding: 12px 25px;
-  font-size: 1.3rem;
-  font-weight: 800;
-  border: 3px solid #333333;
-  background-color: #ffffff;
-  color: #333333;
-  border-radius: 16px;
-  cursor: pointer;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
+  padding: 12px 25px; font-size: 1.3rem; font-weight: 800; border: 3px solid #333333;
+  background-color: #ffffff; color: #333333; border-radius: 16px; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); transition: all 0.2s ease;
 }
-.tab-container button.active {
-  background-color: #42b883;
-  color: white;
-  border-color: #42b883;
-}
+.tab-container button.active { background-color: #42b883; color: white; border-color: #42b883; }
 
-/* 💡 연락처 검색 박스 디자인 */
-.search-box {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 40px;
-  width: 100%;
-}
+.search-box { display: flex; justify-content: center; gap: 12px; margin-bottom: 40px; width: 100%; }
 .search-box input {
-  font-size: 1.4rem;
-  font-weight: 700;
-  border: 3px solid #333333;
-  border-radius: 16px;
-  padding: 12px 20px;
-  outline: none;
-  width: 320px;
-  max-width: 65%;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-  background-color: white;
-  color: #1a202c;
+  font-size: 1.4rem; font-weight: 700; border: 3px solid #333333; border-radius: 16px;
+  padding: 12px 20px; outline: none; width: 320px; max-width: 65%;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); background-color: white; color: #1a202c;
 }
 .search-btn {
-  padding: 12px 25px;
-  background-color: #42b883;
-  color: white;
-  font-size: 1.3rem;
-  font-weight: 800;
-  border: 3px solid #333333;
-  border-radius: 16px;
-  cursor: pointer;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  padding: 12px 25px; background-color: #42b883; color: white; font-size: 1.3rem; font-weight: 800;
+  border: 3px solid #333333; border-radius: 16px; cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
   transition: background-color 0.2s;
 }
 .search-btn:hover { background-color: #339d6c; }
 
-/* 조회 결과 카드 배치 배열 */
-.results-container {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 20px;
-  width: 100%;
+.results-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; width: 100%; }
+
+.result-card { width: 220px !important; cursor: default !important; }
+.result-card:hover { transform: none !important; border-color: #333333 !important; background-color: white !important; }
+
+.card-cancel-btn {
+  margin-top: 12px; padding: 6px 16px; font-size: 1.1rem; font-weight: 800;
+  background-color: #ffffff; color: #ff4d4f; border: 2px solid #ff4d4f;
+  border-radius: 12px; cursor: pointer; transition: all 0.2s;
 }
-.result-card {
-  width: 220px !important;
-  cursor: default !important;
-}
-.result-card:hover {
-  transform: none !important;
-  border-color: #333333 !important;
-  background-color: white !important;
+.card-cancel-btn:hover { background-color: #fff1f0; }
+
+.is-cancelled-card { opacity: 0.45; background-color: #f5f5f5 !important; border-color: #cccccc !important; }
+.cancel-badge {
+  margin-top: 12px; font-size: 1.1rem; font-weight: bold;
+  color: #888888; background-color: #e8e8e8; padding: 4px 12px; border-radius: 8px;
 }
 
-/* 기존 50% 축소 스타일 완벽 보존 */
 .survey-wrapper { background-color: #444444; min-height: 100vh; min-height: 100dvh; width: 100%; padding: 40px 20px 120px 20px; box-sizing: border-box; }
 .content-wrapper { max-width: 1000px; margin: 0 auto; width: 100%; }
 .survey-header { text-align: center; margin-bottom: 40px; }
@@ -372,10 +366,7 @@ onMounted(() => {
 @media (hover: hover) { .rating-item:hover:not(:disabled) { border-color: #42b883; background-color: #f4fbf8; transform: translateY(-6px); } }
 .rating-item.active { border-color: #42b883; background-color: #42b883; color: #ffffff; }
 
-.rating-item.is-booked {
-  background-color: #555555 !important; border-color: #222222 !important; color: #888888 !important;
-  cursor: not-allowed !important; box-shadow: none !important; transform: none !important;
-}
+.rating-item.is-booked { background-color: #555555 !important; border-color: #222222 !important; color: #888888 !important; cursor: not-allowed !important; box-shadow: none !important; transform: none !important; }
 .booked-badge { margin-top: 6px; font-size: 0.9rem; font-weight: bold; background-color: #ff4d4f; color: white; padding: 2px 8px; border-radius: 6px; }
 .emoji { font-size: 3.5rem; margin-bottom: 10px; }
 .content-box { display: flex; flex-direction: column; align-items: center; }
