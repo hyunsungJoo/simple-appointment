@@ -136,7 +136,7 @@
             <div class="modal-form">
               <div class="input-block"><label>이름</label><input type="text" v-model="userName" placeholder="홍길동" ref="nameInput" /></div>
               <div class="input-block"><label>부서</label><input type="text" v-model="userDept" placeholder="경영지원팀" ref="deptInput" /></div>
-              <div class="input-block"><label>휴대폰번호</label><input type="tel" v-model="userPhone" placeholder="(-제외, 숫자만입력)" ref="phoneInput" /></div>
+              <div class="input-block"><label>휴대폰번호 (-제외, 숫자만입력)</label><input type="tel" v-model="userPhone" placeholder="01012345678 (-제외, 숫자만입력)" ref="phoneInput" /></div>
             </div>
             <div class="modal-buttons">
               <button class="cancel-btn" @click="closeModal">취소</button>
