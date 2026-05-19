@@ -18,9 +18,20 @@
 
         <div v-else>
           <section class="section">
-            <div class="section-title">
+            <div class="section-title month-select-title">
               <h3>📅 날짜를 선택해 주세요</h3>
+              <div class="month-tabs">
+                <button 
+                  v-for="m in availableMonths" 
+                  :key="m" 
+                  :class="['month-btn', { active: selectedMonth === m }]"
+                  @click="changeMonth(m)"
+                >
+                  {{ m }}월
+                </button>
+              </div>
             </div>
+            
             <div class="date-flex-container">
               <button
                 v-for="date in availableDates"
@@ -34,6 +45,7 @@
                   <div class="score">금요일</div>
                 </div>
               </button>
+              <div v-if="availableDates.length === 0" class="empty-msg">해당 월에는 예약 가능한 금요일이 없습니다.</div>
             </div>
           </section>
 
@@ -87,7 +99,7 @@
             <button class="search-btn" @click="lookupReservations" :disabled="lookupLoading">조회하기</button>
           </div>
 
-          <div v-if="lookupLoading" class="loading-status">예약 명단을 확인하는 중입니다...</div>
+          <div v-if="lookupLoading" class="loading-status">예약 명단을 최신화하여 확인 중입니다...</div>
           
           <div v-else>
             <div v-if="lookupResults.length > 0" class="results-container">
@@ -123,12 +135,24 @@
             </div>
             <div class="modal-form">
               <div class="input-block"><label>이름</label><input type="text" v-model="userName" placeholder="홍길동" ref="nameInput" /></div>
-              <div class="input-block"><label>부서</label><input type="text" v-model="userDept" placeholder="경영지원팀" /></div>
-              <div class="input-block"><label>휴대폰번호</label><input type="tel" v-model="userPhone" placeholder="01012345678" /></div>
+              <div class="input-block"><label>부서</label><input type="text" v-model="userDept" placeholder="경영지원팀" ref="deptInput" /></div>
+              <div class="input-block"><label>휴대폰번호</label><input type="tel" v-model="userPhone" placeholder="01012345678 (-제외, 숫자만입력)" ref="phoneInput" /></div>
             </div>
             <div class="modal-buttons">
               <button class="cancel-btn" @click="closeModal">취소</button>
-              <button class="confirm-btn" :disabled="!userName.trim() || !userDept.trim() || !userPhone.trim()" @click="submitReservation">예약 확정하기</button>
+              <button class="confirm-btn" @click="submitReservation">예약 확정하기</button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <transition name="pop">
+        <div v-if="customAlert.show" class="modal-overlay" style="z-index: 10000;" @click.self="handleAlertCancel">
+          <div class="custom-alert-card">
+            <div class="custom-alert-msg">{{ customAlert.message }}</div>
+            <div class="custom-alert-buttons">
+              <button v-if="customAlert.type === 'confirm'" class="cancel-btn" @click="handleAlertCancel">취소</button>
+              <button class="confirm-btn" @click="handleAlertConfirm">확인</button>
             </div>
           </div>
         </div>
@@ -142,11 +166,14 @@
 import { ref, onMounted, nextTick } from 'vue';
 import axios from 'axios';
 
-const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzs2zJlIuQXD5K4kUWyNYTSYQX-PrJsvoQiROKhSaYlhkUWkvFlo6ToIX7RWqM8AXYR/exec';
+const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyucFK5uCXyVk32SsRQTGWqe-Pw-53BDmQybDlcj9Mv4yDDFYyDkfOSvjn3QqTTGCIp3A/exec';
 
 const currentTab = ref('reserve');
 
-// 💡 이름 기반 조회 전용 상태값으로 교체
+const availableMonths = [6, 7, 8];
+const selectedMonth = ref(6); 
+const currentYear = new Date().getFullYear();
+
 const searchName = ref('');
 const lookupResults = ref([]);
 const lookupLoading = ref(false);
@@ -161,9 +188,45 @@ const availableDates = ref([]);
 const bookedSlots = ref([]); 
 const globalLoading = ref(true);
 const showModal = ref(false);
+
+// 포커싱을 위한 DOM Ref
 const nameInput = ref(null);
+const deptInput = ref(null);
+const phoneInput = ref(null);
 
 const timeSlots = ['1:00 - 1:30', '1:30 - 2:00', '2:00 - 2:30', '2:30 - 3:00', '3:30 - 4:00'];
+
+// 💡 커스텀 알림창 상태 관리
+const customAlert = ref({
+  show: false,
+  type: 'alert', // 'alert' 또는 'confirm'
+  message: '',
+  resolve: null
+});
+
+// 커스텀 Alert 띄우기 함수 (기본 alert 대체)
+const openAlert = (message) => {
+  return new Promise((resolve) => {
+    customAlert.value = { show: true, type: 'alert', message, resolve };
+  });
+};
+
+// 커스텀 Confirm 띄우기 함수 (기본 confirm 대체)
+const openConfirm = (message) => {
+  return new Promise((resolve) => {
+    customAlert.value = { show: true, type: 'confirm', message, resolve };
+  });
+};
+
+const handleAlertConfirm = () => {
+  customAlert.value.show = false;
+  if (customAlert.value.resolve) customAlert.value.resolve(true);
+};
+
+const handleAlertCancel = () => {
+  customAlert.value.show = false;
+  if (customAlert.value.resolve) customAlert.value.resolve(false); // Alert일 경우에도 false로 닫힘
+};
 
 const isSlotBooked = (date, time) => {
   return bookedSlots.value.some(slot => slot.date === date && slot.time === time);
@@ -178,7 +241,8 @@ const closeModal = () => { showModal.value = false; };
 const fetchReservations = async (isSilent = false) => {
   try {
     if (!isSilent) globalLoading.value = true;
-    const response = await axios.get(GOOGLE_WEB_APP_URL);
+    const timestamp = new Date().getTime();
+    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?t=${timestamp}`);
     bookedSlots.value = response.data;
   } catch (error) {
     console.error('예약 데이터 로드 실패:', error);
@@ -187,64 +251,90 @@ const fetchReservations = async (isSilent = false) => {
   }
 };
 
-// 💡 이름 기반으로 GET 요청을 보내도록 변경
 const lookupReservations = async () => {
-  if (!searchName.value.trim()) return;
+  if (!searchName.value.trim()) {
+    await openAlert('🔍 조회하실 예약자 성명을 입력해 주세요.');
+    return;
+  }
+  
   try {
     lookupLoading.value = true;
     hasSearched.value = true;
     
-    // 공백을 제거한 순수 텍스트 성명 전송 (CORS 안전 인코딩 적용)
     const cleanName = searchName.value.trim();
-    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?name=${encodeURIComponent(cleanName)}`);
-    lookupResults.value = response.data;
+    const timestamp = new Date().getTime();
+    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?name=${encodeURIComponent(cleanName)}&t=${timestamp}`);
+    
+    lookupResults.value = response.data.reverse();
   } catch (error) {
     console.error('예약 조회 실패:', error);
-    alert('조회 중 서버 오류가 발생했습니다.');
+    await openAlert('조회 중 서버 오류가 발생했습니다.');
   } finally {
     lookupLoading.value = false;
   }
 };
 
-// 이름 + 날짜 + 시간 3단 조합으로 구글 웹 앱 매칭 취소 요청
+// 💡 취소 로직도 대형 Confirm 알림창 연동
 const cancelReservation = async (res) => {
-  if (!confirm(`🚨 [예약 취소]\n${formatDate(res.date)} (금) ${res.time} 예약을 취소하시겠습니까?`)) return;
+  const isConfirmed = await openConfirm(`🚨 [예약 취소]\n${formatDate(res.date)} (금) ${res.time} 예약을 취소하시겠습니까?`);
+  if (!isConfirmed) return;
   
-  try {
-    lookupLoading.value = true;
-    const payload = {
-      action: 'cancel',
-      name: res.name, // 💡 번호 대신 이름을 전송
-      date: res.date,
-      time: res.time
-    };
+  res.isCancelled = true;
+  
+  bookedSlots.value = bookedSlots.value.filter(slot => 
+    !(slot.date === res.date && slot.time === res.time)
+  );
 
-    const response = await axios.post(GOOGLE_WEB_APP_URL, JSON.stringify(payload), {
-      headers: { 'Content-Type': 'text/plain' }
-    });
+  await openAlert('❌ 예약이 성공적으로 취소처리 되었습니다.');
 
-    if (response.data && response.data.result === 'success') {
-      alert('❌ 예약이 성공적으로 취소처리 되었습니다.');
-      await lookupReservations(); // 내가 검색한 이름 목록 새로고침
-      await fetchReservations(true); // 달력 새로고침
-    } else {
-      alert(`⚠️ 취소 실패: ${response.data.message || '서버 매칭 오류'}`);
-    }
+  const payload = {
+    action: 'cancel',
+    name: res.name,
+    date: res.date,
+    time: res.time
+  };
 
-  } catch (error) {
-    console.error('예약 취소 오류:', error);
-    alert('취소 처리에 실패했습니다. 다시 시도해 주세요.');
-  } finally {
-    lookupLoading.value = false;
-  }
+  axios.post(GOOGLE_WEB_APP_URL, JSON.stringify(payload), {
+    headers: { 'Content-Type': 'text/plain' }
+  })
+  .then(() => {
+    fetchReservations(true); 
+  })
+  .catch(async (error) => {
+    res.isCancelled = false;
+    await openAlert(`⚠️ 백그라운드 통신 실패: 새로고침 후 다시 시도해 주세요.`);
+    console.error(error);
+  });
 };
 
-const submitReservation = () => {
-  if (!selectedDate.value || !selectedTime.value || !userName.value.trim() || !userDept.value.trim() || !userPhone.value.trim()) return;
+// 💡 등록 로직도 대형 Alert 알림창 연동
+const submitReservation = async () => {
+  if (!userName.value.trim()) {
+    await openAlert('👤 예약자 이름을 입력해 주세요.');
+    if (nameInput.value) nameInput.value.focus();
+    return;
+  }
+  if (!userDept.value.trim()) {
+    await openAlert('🏢 소속 부서를 입력해 주세요.');
+    if (deptInput.value) deptInput.value.focus();
+    return;
+  }
+  if (!userPhone.value.trim()) {
+    await openAlert('📱 휴대폰 번호를 입력해 주세요.');
+    if (phoneInput.value) phoneInput.value.focus();
+    return;
+  }
   
   const targetDate = selectedDate.value;
   const targetTime = selectedTime.value;
   const targetName = userName.value.trim();
+
+  const userReservationCount = bookedSlots.value.filter(slot => slot.name === targetName).length;
+  
+  if (userReservationCount >= 2) {
+    await openAlert(`🚨 예약 한도 초과!\n\n${targetName}님은 이미 최대 2개의 예약을 완료하셨습니다.\n추가 예약을 원하시면 기존 예약을 조회하여 취소해 주세요.`);
+    return;
+  }
 
   const payload = {
     name: targetName,
@@ -254,9 +344,12 @@ const submitReservation = () => {
     time: targetTime
   };
 
-  bookedSlots.value.push({ date: targetDate, time: targetTime });
-  alert(`🎉 예약 신청이 접수되었습니다!\n(구글 시트에 동기화 중...)\n\n예약자: ${targetName}\n날짜: ${formatDate(targetDate)}\n시간: ${targetTime}`);
+  bookedSlots.value.push({ date: targetDate, time: targetTime, name: targetName });
+  await openAlert(`🎉 예약 신청이 접수되었습니다!\n(구글 시트에 동기화 중...)\n\n예약자: ${targetName}\n날짜: ${formatDate(targetDate)}\n시간: ${targetTime}`);
   
+  lookupResults.value = [];
+  hasSearched.value = false;
+
   showModal.value = false;
   userName.value = ''; userDept.value = ''; userPhone.value = ''; selectedDate.value = null; selectedTime.value = null;
 
@@ -266,20 +359,17 @@ const submitReservation = () => {
   .then(() => {
     fetchReservations(true);
   })
-  .catch((error) => {
-    alert(`⚠️ 백그라운드 전송 실패!`);
+  .catch(async (error) => {
+    await openAlert(`⚠️ 백그라운드 전송 실패!`);
     console.error(error);
   });
 };
 
-const calculateNextMonthFridays = () => {
-  const today = new Date();
-  let nextMonth = today.getMonth() + 1;
-  let year = today.getFullYear();
-  if (nextMonth > 11) { nextMonth = 0; year += 1; }
+const calculateFridaysForMonth = (month) => {
   const fridays = [];
-  let date = new Date(year, nextMonth, 1);
-  while (date.getMonth() === nextMonth) {
+  let date = new Date(currentYear, month - 1, 1);
+  
+  while (date.getMonth() === month - 1) {
     if (date.getDay() === 5) {
       const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       fridays.push(formattedDate);
@@ -287,6 +377,13 @@ const calculateNextMonthFridays = () => {
     date.setDate(date.getDate() + 1);
   }
   availableDates.value = fridays;
+};
+
+const changeMonth = (m) => {
+  selectedMonth.value = m;
+  selectedDate.value = null;
+  selectedTime.value = null;
+  calculateFridaysForMonth(m);
 };
 
 const formatDate = (dateString) => {
@@ -299,50 +396,38 @@ const selectDate = (date) => { selectedDate.value = date; selectedTime.value = n
 const selectTime = (time) => { selectedTime.value = time; };
 
 onMounted(() => {
-  calculateNextMonthFridays();
+  changeMonth(selectedMonth.value);
   fetchReservations(false);
 });
 </script>
 
 <style scoped>
+/* 기본 스타일 유지 */
+.month-select-title { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+.month-tabs { display: flex; gap: 10px; }
+.month-btn { padding: 8px 18px; font-size: 1.2rem; font-weight: 800; border-radius: 20px; border: 2px solid #333; background-color: white; color: #333; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15); }
+.month-btn.active { background-color: #42b883; color: white; border-color: #42b883; }
+@media (min-width: 768px) { .month-select-title { flex-direction: row; justify-content: center; } }
+
 .tab-container { display: flex; justify-content: center; gap: 15px; margin-bottom: 40px; }
-.tab-container button {
-  padding: 12px 25px; font-size: 1.3rem; font-weight: 800; border: 3px solid #333333;
-  background-color: #ffffff; color: #333333; border-radius: 16px; cursor: pointer;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); transition: all 0.2s ease;
-}
+.tab-container button { padding: 12px 25px; font-size: 1.3rem; font-weight: 800; border: 3px solid #333333; background-color: #ffffff; color: #333333; border-radius: 16px; cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); transition: all 0.2s ease; }
 .tab-container button.active { background-color: #42b883; color: white; border-color: #42b883; }
 
 .search-box { display: flex; justify-content: center; gap: 12px; margin-bottom: 40px; width: 100%; }
-.search-box input {
-  font-size: 1.4rem; font-weight: 700; border: 3px solid #333333; border-radius: 16px;
-  padding: 12px 20px; outline: none; width: 320px; max-width: 65%;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); background-color: white; color: #1a202c;
-}
-.search-btn {
-  padding: 12px 25px; background-color: #42b883; color: white; font-size: 1.3rem; font-weight: 800;
-  border: 3px solid #333333; border-radius: 16px; cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-  transition: background-color 0.2s;
-}
-.search-btn:hover { background-color: #339d6c; }
+.search-box input { font-size: 1.4rem; font-weight: 700; border: 3px solid #333333; border-radius: 16px; padding: 12px 20px; outline: none; width: 320px; max-width: 65%; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); background-color: white; color: #1a202c; }
+.search-btn { padding: 12px 25px; background-color: #42b883; color: white; font-size: 1.3rem; font-weight: 800; border: 3px solid #333333; border-radius: 16px; cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); transition: background-color 0.2s; }
+.search-btn:hover:not(:disabled) { background-color: #339d6c; }
+.search-btn:disabled { background-color: #555555; color: #888888; cursor: not-allowed; border-color: #222222; }
 
 .results-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; width: 100%; }
-
 .result-card { width: 220px !important; cursor: default !important; }
 .result-card:hover { transform: none !important; border-color: #333333 !important; background-color: white !important; }
 
-.card-cancel-btn {
-  margin-top: 12px; padding: 6px 16px; font-size: 1.1rem; font-weight: 800;
-  background-color: #ffffff; color: #ff4d4f; border: 2px solid #ff4d4f;
-  border-radius: 12px; cursor: pointer; transition: all 0.2s;
-}
+.card-cancel-btn { margin-top: 12px; padding: 6px 16px; font-size: 1.1rem; font-weight: 800; background-color: #ffffff; color: #ff4d4f; border: 2px solid #ff4d4f; border-radius: 12px; cursor: pointer; transition: all 0.2s; }
 .card-cancel-btn:hover { background-color: #fff1f0; }
 
 .is-cancelled-card { opacity: 0.45; background-color: #f5f5f5 !important; border-color: #cccccc !important; }
-.cancel-badge {
-  margin-top: 12px; font-size: 1.1rem; font-weight: bold;
-  color: #888888; background-color: #e8e8e8; padding: 4px 12px; border-radius: 8px;
-}
+.cancel-badge { margin-top: 12px; font-size: 1.1rem; font-weight: bold; color: #888888; background-color: #e8e8e8; padding: 4px 12px; border-radius: 8px; }
 
 .survey-wrapper { background-color: #444444; min-height: 100vh; min-height: 100dvh; width: 100%; padding: 40px 20px 120px 20px; box-sizing: border-box; }
 .content-wrapper { max-width: 1000px; margin: 0 auto; width: 100%; }
@@ -354,18 +439,12 @@ onMounted(() => {
 .section-title h3 { font-size: 1.5rem; font-weight: 700; color: #ffffff; margin: 0; }
 .date-flex-container, .time-flex-container { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 15px; width: 100%; }
 
-.rating-item {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  border: 3px solid #333333; border-radius: 20px; cursor: pointer; transition: all 0.25s ease;
-  background-color: #ffffff; color: #1a202c; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-  outline: none; box-sizing: border-box; width: 180px; padding: 25px 15px; 
-}
+.rating-item { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 3px solid #333333; border-radius: 20px; cursor: pointer; transition: all 0.25s ease; background-color: #ffffff; color: #1a202c; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); outline: none; box-sizing: border-box; width: 180px; padding: 25px 15px; }
 .time-flex-container .rating-item { width: 150px; padding: 20px 10px; }
 .time-text { font-size: 1.5rem; font-weight: 800; }
 
 @media (hover: hover) { .rating-item:hover:not(:disabled) { border-color: #42b883; background-color: #f4fbf8; transform: translateY(-6px); } }
 .rating-item.active { border-color: #42b883; background-color: #42b883; color: #ffffff; }
-
 .rating-item.is-booked { background-color: #555555 !important; border-color: #222222 !important; color: #888888 !important; cursor: not-allowed !important; box-shadow: none !important; transform: none !important; }
 .booked-badge { margin-top: 6px; font-size: 0.9rem; font-weight: bold; background-color: #ff4d4f; color: white; padding: 2px 8px; border-radius: 6px; }
 .emoji { font-size: 3.5rem; margin-bottom: 10px; }
@@ -387,7 +466,8 @@ onMounted(() => {
 .submit-btn:hover:not(:disabled) { background-color: #339d6c; transform: scale(1.03); }
 .submit-btn:disabled { background-color: #555555; color: #888888; cursor: not-allowed; box-shadow: none; }
 
-.modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 999; }
+/* 모달 기본 스타일 */
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; z-index: 999; }
 .modal-card { background-color: #ffffff; border: 3px solid #333333; border-radius: 20px; width: 400px; max-width: 90%; padding: 25px; box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5); box-sizing: border-box; }
 .modal-header { text-align: center; margin-bottom: 20px; }
 .modal-header h3 { font-size: 1.6rem; font-weight: 800; color: #1a202c; margin: 0 0 4px 0; }
@@ -401,11 +481,36 @@ onMounted(() => {
 .cancel-btn { flex: 1; padding: 12px; background-color: #eee; color: #555; font-size: 1.2rem; font-weight: 800; border: none; border-radius: 30px; cursor: pointer; }
 .confirm-btn { flex: 2; padding: 12px; background-color: #42b883; color: white; font-size: 1.2rem; font-weight: 800; border: none; border-radius: 30px; cursor: pointer; }
 
+/* 💡 추가된 대형 커스텀 알림창 스타일 */
+.custom-alert-card {
+  background-color: #ffffff;
+  border: 4px solid #333333;
+  border-radius: 24px;
+  width: 500px;
+  max-width: 90%;
+  padding: 40px;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  box-sizing: border-box;
+}
+.custom-alert-msg {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #1a202c;
+  line-height: 1.6;
+  margin-bottom: 35px;
+  white-space: pre-wrap; /* \n 줄바꿈 적용되도록 설정 */
+}
+.custom-alert-buttons { display: flex; gap: 15px; }
+.custom-alert-buttons .cancel-btn { padding: 18px; font-size: 1.5rem; border-radius: 50px; }
+.custom-alert-buttons .confirm-btn { padding: 18px; font-size: 1.5rem; border-radius: 50px; }
+
 @media (max-width: 768px) {
   .survey-wrapper { padding: 25px 15px 120px 15px; }
   .main-title { font-size: 2.2rem; }
   .sub-title-1 { font-size: 1.1rem; }
   .section-title h3 { font-size: 1.3rem; }
+  .month-select-title { flex-direction: column; }
   .date-flex-container, .time-flex-container { flex-direction: column; align-items: center; gap: 10px; }
   .rating-item, .time-flex-container .rating-item { width: 100%; padding: 15px; flex-direction: row; justify-content: flex-start; gap: 15px; border-radius: 12px; }
   .time-flex-container .rating-item { justify-content: center; }
@@ -418,14 +523,19 @@ onMounted(() => {
   .selection-info { font-size: 1.2rem; align-items: center; text-align: center; }
   .submit-btn { width: 100%; padding: 12px; font-size: 1.3rem; }
   .modal-card { padding: 25px 20px; }
+  .custom-alert-card { padding: 30px 20px; }
+  .custom-alert-msg { font-size: 1.5rem; margin-bottom: 25px; }
+  .custom-alert-buttons .cancel-btn, .custom-alert-buttons .confirm-btn { padding: 14px; font-size: 1.3rem; }
 }
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.4s ease, transform 0.4s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(20px); }
 .pop-enter-active, .pop-leave-active { transition: opacity 0.3s ease; }
-.pop-enter-active .modal-card, .pop-leave-active .modal-card { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.pop-enter-active .modal-card, .pop-leave-active .modal-card,
+.pop-enter-active .custom-alert-card, .pop-leave-active .custom-alert-card { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .pop-enter-from, .pop-leave-to { opacity: 0; }
-.pop-enter-from .modal-card, .pop-leave-to .modal-card { transform: scale(0.9); }
+.pop-enter-from .modal-card, .pop-leave-to .modal-card,
+.pop-enter-from .custom-alert-card, .pop-leave-to .custom-alert-card { transform: scale(0.9); }
 </style>
 
 <style>
