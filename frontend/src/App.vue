@@ -136,7 +136,7 @@
             <div class="modal-form">
               <div class="input-block"><label>이름</label><input type="text" v-model="userName" placeholder="홍길동" ref="nameInput" /></div>
               <div class="input-block"><label>부서</label><input type="text" v-model="userDept" placeholder="경영지원팀" ref="deptInput" /></div>
-              <div class="input-block"><label>휴대폰번호 (-제외, 숫자만입력)</label><input type="tel" v-model="userPhone" placeholder="01012345678" ref="phoneInput" /></div>
+              <div class="input-block"><label>휴대폰번호</label><input type="tel" v-model="userPhone" placeholder="01012345678" ref="phoneInput" /></div>
             </div>
             <div class="modal-buttons">
               <button class="cancel-btn" @click="closeModal">취소</button>
@@ -147,10 +147,10 @@
       </transition>
 
       <transition name="pop">
-        <div v-if="customAlert.show" class="modal-overlay" style="z-index: 10000;" @click.self="handleAlertCancel">
+        <div v-if="customAlert.show" class="modal-overlay" style="z-index: 10000;">
           <div class="custom-alert-card">
             <div class="custom-alert-msg">{{ customAlert.message }}</div>
-            <div class="custom-alert-buttons">
+            <div class="custom-alert-buttons" v-if="customAlert.type !== 'loading'">
               <button v-if="customAlert.type === 'confirm'" class="cancel-btn" @click="handleAlertCancel">취소</button>
               <button class="confirm-btn" @click="handleAlertConfirm">확인</button>
             </div>
@@ -166,10 +166,9 @@
 import { ref, onMounted, nextTick } from 'vue';
 import axios from 'axios';
 
-const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyucFK5uCXyVk32SsRQTGWqe-Pw-53BDmQybDlcj9Mv4yDDFYyDkfOSvjn3QqTTGCIp3A/exec';
+const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwh77xrwb9ySOJm1tuly_5uVlAQmaA9i-tx1VQ5Qj6RcHyMSavE2brje_kGMmNHLUDqpg/exec';
 
 const currentTab = ref('reserve');
-
 const availableMonths = [6, 7, 8];
 const selectedMonth = ref(6); 
 const currentYear = new Date().getFullYear();
@@ -189,216 +188,106 @@ const bookedSlots = ref([]);
 const globalLoading = ref(true);
 const showModal = ref(false);
 
-// 포커싱을 위한 DOM Ref
 const nameInput = ref(null);
 const deptInput = ref(null);
 const phoneInput = ref(null);
 
 const timeSlots = ['1:00 - 1:30', '1:30 - 2:00', '2:00 - 2:30', '2:30 - 3:00', '3:30 - 4:00'];
 
-// 💡 커스텀 알림창 상태 관리
-const customAlert = ref({
-  show: false,
-  type: 'alert', // 'alert' 또는 'confirm'
-  message: '',
-  resolve: null
-});
+const customAlert = ref({ show: false, type: 'alert', message: '', resolve: null });
 
-// 커스텀 Alert 띄우기 함수 (기본 alert 대체)
-const openAlert = (message) => {
-  return new Promise((resolve) => {
-    customAlert.value = { show: true, type: 'alert', message, resolve };
-  });
+const openAlert = (message) => new Promise((resolve) => { customAlert.value = { show: true, type: 'alert', message, resolve }; });
+const openConfirm = (message) => new Promise((resolve) => { customAlert.value = { show: true, type: 'confirm', message, resolve }; });
+const openLoading = (message) => { customAlert.value = { show: true, type: 'loading', message, resolve: null }; };
+
+// 💡 확인 버튼 클릭 시 모달도 강제로 닫고 첫 화면으로 복귀
+const handleAlertConfirm = () => { 
+  customAlert.value.show = false; 
+  showModal.value = false; 
+  currentTab.value = 'reserve'; 
+  if (customAlert.value.resolve) customAlert.value.resolve(true); 
 };
 
-// 커스텀 Confirm 띄우기 함수 (기본 confirm 대체)
-const openConfirm = (message) => {
-  return new Promise((resolve) => {
-    customAlert.value = { show: true, type: 'confirm', message, resolve };
-  });
+const handleAlertCancel = () => { 
+  customAlert.value.show = false; 
+  if (customAlert.value.resolve) customAlert.value.resolve(false); 
 };
 
-const handleAlertConfirm = () => {
-  customAlert.value.show = false;
-  if (customAlert.value.resolve) customAlert.value.resolve(true);
-};
-
-const handleAlertCancel = () => {
-  customAlert.value.show = false;
-  if (customAlert.value.resolve) customAlert.value.resolve(false); // Alert일 경우에도 false로 닫힘
-};
-
-const isSlotBooked = (date, time) => {
-  return bookedSlots.value.some(slot => slot.date === date && slot.time === time);
-};
-
-const openModal = () => {
-  showModal.value = true;
-  nextTick(() => { if (nameInput.value) nameInput.value.focus(); });
-};
+const isSlotBooked = (date, time) => bookedSlots.value.some(slot => slot.date === date && slot.time === time);
+const openModal = () => { showModal.value = true; nextTick(() => { if (nameInput.value) nameInput.value.focus(); }); };
 const closeModal = () => { showModal.value = false; };
 
 const fetchReservations = async (isSilent = false) => {
   try {
     if (!isSilent) globalLoading.value = true;
-    const timestamp = new Date().getTime();
-    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?t=${timestamp}`);
+    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?t=${new Date().getTime()}`);
     bookedSlots.value = response.data;
-  } catch (error) {
-    console.error('예약 데이터 로드 실패:', error);
-  } finally {
-    if (!isSilent) globalLoading.value = false;
-  }
+  } catch (error) { console.error('예약 데이터 로드 실패:', error); } finally { if (!isSilent) globalLoading.value = false; }
 };
 
 const lookupReservations = async () => {
-  if (!searchName.value.trim()) {
-    await openAlert('🔍 조회하실 예약자 성명을 입력해 주세요.');
-    return;
-  }
-  
+  if (!searchName.value.trim()) { await openAlert('🔍 조회하실 예약자 성명을 입력해 주세요.'); return; }
   try {
-    lookupLoading.value = true;
-    hasSearched.value = true;
-    
-    const cleanName = searchName.value.trim();
-    const timestamp = new Date().getTime();
-    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?name=${encodeURIComponent(cleanName)}&t=${timestamp}`);
-    
+    lookupLoading.value = true; hasSearched.value = true;
+    const response = await axios.get(`${GOOGLE_WEB_APP_URL}?name=${encodeURIComponent(searchName.value.trim())}&t=${new Date().getTime()}`);
     lookupResults.value = response.data.reverse();
-  } catch (error) {
-    console.error('예약 조회 실패:', error);
-    await openAlert('조회 중 서버 오류가 발생했습니다.');
-  } finally {
-    lookupLoading.value = false;
-  }
+  } catch (error) { await openAlert('조회 실패'); } finally { lookupLoading.value = false; }
 };
 
-// 💡 취소 로직도 대형 Confirm 알림창 연동
 const cancelReservation = async (res) => {
-  const isConfirmed = await openConfirm(`🚨 [예약 취소]\n${formatDate(res.date)} (금) ${res.time} 예약을 취소하시겠습니까?`);
-  if (!isConfirmed) return;
-  
+  if (!await openConfirm(`🚨 예약 취소하시겠습니까?`)) return;
   res.isCancelled = true;
-  
-  bookedSlots.value = bookedSlots.value.filter(slot => 
-    !(slot.date === res.date && slot.time === res.time)
-  );
-
-  await openAlert('❌ 예약이 성공적으로 취소처리 되었습니다.');
-
-  const payload = {
-    action: 'cancel',
-    name: res.name,
-    date: res.date,
-    time: res.time
-  };
-
-  axios.post(GOOGLE_WEB_APP_URL, JSON.stringify(payload), {
-    headers: { 'Content-Type': 'text/plain' }
-  })
-  .then(() => {
-    fetchReservations(true); 
-  })
-  .catch(async (error) => {
-    res.isCancelled = false;
-    await openAlert(`⚠️ 백그라운드 통신 실패: 새로고침 후 다시 시도해 주세요.`);
-    console.error(error);
-  });
+  bookedSlots.value = bookedSlots.value.filter(s => !(s.date === res.date && s.time === res.time));
+  await openAlert('❌ 취소되었습니다.');
+  axios.post(GOOGLE_WEB_APP_URL, JSON.stringify({ action: 'cancel', name: res.name, date: res.date, time: res.time }), { headers: { 'Content-Type': 'text/plain' } })
+    .then(() => fetchReservations(true)).catch(async () => { res.isCancelled = false; await openAlert(`⚠️ 통신 실패`); });
 };
 
-// 💡 등록 로직도 대형 Alert 알림창 연동
 const submitReservation = async () => {
-  if (!userName.value.trim()) {
-    await openAlert('👤 예약자 이름을 입력해 주세요.');
-    if (nameInput.value) nameInput.value.focus();
-    return;
-  }
-  if (!userDept.value.trim()) {
-    await openAlert('🏢 소속 부서를 입력해 주세요.');
-    if (deptInput.value) deptInput.value.focus();
-    return;
-  }
-  if (!userPhone.value.trim()) {
-    await openAlert('📱 휴대폰 번호를 입력해 주세요.');
-    if (phoneInput.value) phoneInput.value.focus();
-    return;
-  }
+  if (!userName.value.trim()) { await openAlert('이름 입력 필수'); nameInput.value?.focus(); return; }
+  if (!userDept.value.trim()) { await openAlert('부서 입력 필수'); deptInput.value?.focus(); return; }
+  if (!userPhone.value.trim()) { await openAlert('전화번호 입력 필수'); phoneInput.value?.focus(); return; }
   
-  const targetDate = selectedDate.value;
-  const targetTime = selectedTime.value;
-  const targetName = userName.value.trim();
-
-  const userReservationCount = bookedSlots.value.filter(slot => slot.name === targetName).length;
-  
-  if (userReservationCount >= 2) {
-    await openAlert(`🚨 예약 한도 초과!\n\n${targetName}님은 이미 최대 2개의 예약을 완료하셨습니다.\n추가 예약을 원하시면 기존 예약을 조회하여 취소해 주세요.`);
-    return;
+  if (bookedSlots.value.filter(s => s.name === userName.value.trim()).length >= 2) {
+    await openAlert(`🚨 예약 한도 초과! (최대 2개)`); return;
   }
 
-  const payload = {
-    name: targetName,
-    dept: userDept.value.trim(),
-    phone: userPhone.value.trim(),
-    date: targetDate,
-    time: targetTime
-  };
+  openLoading('예약 가능여부를 확인중입니다.\n잠시만 기다려 주세요...');
 
-  bookedSlots.value.push({ date: targetDate, time: targetTime, name: targetName });
-  await openAlert(`🎉 예약 신청이 접수되었습니다!\n(구글 시트에 동기화 중...)\n\n예약자: ${targetName}\n날짜: ${formatDate(targetDate)}\n시간: ${targetTime}`);
-  
-  lookupResults.value = [];
-  hasSearched.value = false;
-
-  showModal.value = false;
-  userName.value = ''; userDept.value = ''; userPhone.value = ''; selectedDate.value = null; selectedTime.value = null;
-
-  axios.post(GOOGLE_WEB_APP_URL, JSON.stringify(payload), {
-    headers: { 'Content-Type': 'text/plain' }
-  })
-  .then(() => {
-    fetchReservations(true);
-  })
-  .catch(async (error) => {
-    await openAlert(`⚠️ 백그라운드 전송 실패!`);
-    console.error(error);
-  });
+  try {
+    const response = await axios.post(GOOGLE_WEB_APP_URL, JSON.stringify({ name: userName.value.trim(), dept: userDept.value.trim(), phone: userPhone.value.trim(), date: selectedDate.value, time: selectedTime.value }), { headers: { 'Content-Type': 'text/plain' } });
+    
+    customAlert.value.show = false; 
+    
+    if (response.data.result === 'error') {
+      await openAlert(`⚠️ 예약 실패:\n${response.data.message}`);
+      // 💡 여기서 handleAlertConfirm이 호출되면서 자동으로 Tab이 reserve로 바뀝니다.
+      fetchReservations(true);
+    } else {
+      bookedSlots.value.push({ date: selectedDate.value, time: selectedTime.value, name: userName.value.trim() });
+      await openAlert(`🎉 예약 확정!`);
+      // 💡 예약 성공 후 폼 초기화
+      userName.value = ''; userDept.value = ''; userPhone.value = ''; selectedDate.value = null; selectedTime.value = null;
+      lookupResults.value = []; hasSearched.value = false; fetchReservations(true);
+    }
+  } catch (error) { customAlert.value.show = false; await openAlert(`⚠️ 통신 오류`); }
 };
 
-const calculateFridaysForMonth = (month) => {
-  const fridays = [];
-  let date = new Date(currentYear, month - 1, 1);
-  
-  while (date.getMonth() === month - 1) {
-    if (date.getDay() === 5) {
-      const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      fridays.push(formattedDate);
-    }
+const calculateFridaysForMonth = (m) => {
+  const fridays = []; let date = new Date(currentYear, m - 1, 1);
+  while (date.getMonth() === m - 1) {
+    if (date.getDay() === 5) fridays.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`);
     date.setDate(date.getDate() + 1);
   }
   availableDates.value = fridays;
 };
 
-const changeMonth = (m) => {
-  selectedMonth.value = m;
-  selectedDate.value = null;
-  selectedTime.value = null;
-  calculateFridaysForMonth(m);
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
-};
-
+const changeMonth = (m) => { selectedMonth.value = m; selectedDate.value = null; selectedTime.value = null; calculateFridaysForMonth(m); };
+const formatDate = (dateString) => { if (!dateString) return ''; const date = new Date(dateString); return `${date.getMonth() + 1}월 ${date.getDate()}일`; };
 const selectDate = (date) => { selectedDate.value = date; selectedTime.value = null; };
 const selectTime = (time) => { selectedTime.value = time; };
 
-onMounted(() => {
-  changeMonth(selectedMonth.value);
-  fetchReservations(false);
-});
+onMounted(() => { changeMonth(selectedMonth.value); fetchReservations(false); });
 </script>
 
 <style scoped>
