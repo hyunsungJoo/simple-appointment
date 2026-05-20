@@ -140,7 +140,7 @@
             </div>
             <div class="modal-buttons">
               <button class="cancel-btn" @click="closeModal">취소</button>
-              <button class="confirm-btn" @click="submitReservation">예약 확정하기</button>
+              <button class="confirm-btn" @click="submitReservation">예약하기</button>
             </div>
           </div>
         </div>
