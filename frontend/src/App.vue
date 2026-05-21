@@ -43,6 +43,7 @@
                 <div class="content-box">
                   <div class="text">{{ formatDate(date) }}</div>
                   <div class="score">금요일</div>
+                  <div class="score" style="margin-top:5px; font-weight:bold; color:black;">장소 : {{ getLocationForDate(date) }}</div>
                 </div>
               </button>
               <div v-if="availableDates.length === 0" class="empty-msg">해당 월에는 예약 가능한 금요일이 없습니다.</div>
@@ -112,6 +113,7 @@
                 <div class="content-box">
                   <div class="text">{{ formatDate(res.date) }} (금)</div>
                   <div class="time-text">{{ res.time }}</div>
+                  <div class="score" style="font-weight:bold; color:black;">장소 : {{ res.location && res.location !== '1인실' ? res.location : getLocationForDate(res.date) }}</div>
                   <div class="score">{{ res.name }}님 ({{ res.dept }})</div>
                   
                   <div v-if="res.isCancelled" class="cancel-badge">취소완료</div>
@@ -132,15 +134,16 @@
             <div class="modal-header">
               <h3>👤 예약자 정보 입력</h3>
               <p>{{ formatDate(selectedDate) }} (금) {{ selectedTime }} 예약</p>
+              <p style="font-size: 1rem; color: #666; margin-top: 5px;">장소: {{ getLocationForDate(selectedDate) }}</p>
             </div>
             <div class="modal-form">
               <div class="input-block"><label>이름</label><input type="text" v-model="userName" placeholder="홍길동" ref="nameInput" /></div>
               <div class="input-block"><label>부서</label><input type="text" v-model="userDept" placeholder="경영지원팀" ref="deptInput" /></div>
-              <div class="input-block"><label>휴대폰번호</label><input type="tel" v-model="userPhone" placeholder="01012345678" ref="phoneInput" /></div>
+              <div class="input-block"><label>휴대폰번호 (-제외, 숫자만입력)</label><input type="tel" v-model="userPhone" placeholder="01012345678" ref="phoneInput" /></div>
             </div>
             <div class="modal-buttons">
               <button class="cancel-btn" @click="closeModal">취소</button>
-              <button class="confirm-btn" @click="submitReservation">예약하기</button>
+              <button class="confirm-btn" @click="submitReservation">예약 확정하기</button>
             </div>
           </div>
         </div>
@@ -166,7 +169,7 @@
 import { ref, onMounted, nextTick } from 'vue';
 import axios from 'axios';
 
-const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwh77xrwb9ySOJm1tuly_5uVlAQmaA9i-tx1VQ5Qj6RcHyMSavE2brje_kGMmNHLUDqpg/exec';
+const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycby1SvJx1P8SdnzA_C1OZnH610XbZXzRWEx1EbyeJRCUR8HNu74Us1jjPitMvkhRTpR4WQ/exec';
 
 const currentTab = ref('reserve');
 const availableMonths = [6, 7, 8];
@@ -200,17 +203,35 @@ const openAlert = (message) => new Promise((resolve) => { customAlert.value = { 
 const openConfirm = (message) => new Promise((resolve) => { customAlert.value = { show: true, type: 'confirm', message, resolve }; });
 const openLoading = (message) => { customAlert.value = { show: true, type: 'loading', message, resolve: null }; };
 
-// 💡 확인 버튼 클릭 시 모달도 강제로 닫고 첫 화면으로 복귀
 const handleAlertConfirm = () => { 
   customAlert.value.show = false; 
-  showModal.value = false; 
-  currentTab.value = 'reserve'; 
+  showModal.value = false; // 모달 닫기
+  currentTab.value = 'reserve'; // 무조건 예약하기 탭으로 이동
   if (customAlert.value.resolve) customAlert.value.resolve(true); 
 };
 
 const handleAlertCancel = () => { 
   customAlert.value.show = false; 
   if (customAlert.value.resolve) customAlert.value.resolve(false); 
+};
+
+// 날짜별 장소 동적 계산 로직
+const getLocationForDate = (dateString) => {
+  if (!dateString) return '1분임';
+  
+  const d = new Date(dateString);
+  const targetDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()); 
+  
+  const date7_24 = new Date(2026, 6, 24); // 7월 24일 (월은 0부터 시작)
+  const date7_31 = new Date(2026, 6, 31); // 7월 31일
+  
+  if (targetDate <= date7_24) {
+    return '1분임';
+  } else if (targetDate.getTime() === date7_31.getTime()) {
+    return '3분임';
+  } else {
+    return '2분임'; // 8월 7일 ~ 8월 21일
+  }
 };
 
 const isSlotBooked = (date, time) => bookedSlots.value.some(slot => slot.date === date && slot.time === time);
@@ -255,28 +276,55 @@ const submitReservation = async () => {
   openLoading('예약 가능여부를 확인중입니다.\n잠시만 기다려 주세요...');
 
   try {
-    const response = await axios.post(GOOGLE_WEB_APP_URL, JSON.stringify({ name: userName.value.trim(), dept: userDept.value.trim(), phone: userPhone.value.trim(), date: selectedDate.value, time: selectedTime.value }), { headers: { 'Content-Type': 'text/plain' } });
+    const dynamicLocation = getLocationForDate(selectedDate.value);
+    const payload = {
+      name: userName.value.trim(), 
+      dept: userDept.value.trim(), 
+      phone: userPhone.value.trim(), 
+      date: selectedDate.value, 
+      time: selectedTime.value,
+      location: dynamicLocation
+    };
+
+    const response = await axios.post(GOOGLE_WEB_APP_URL, JSON.stringify(payload), { headers: { 'Content-Type': 'text/plain' } });
     
     customAlert.value.show = false; 
     
     if (response.data.result === 'error') {
       await openAlert(`⚠️ 예약 실패:\n${response.data.message}`);
-      // 💡 여기서 handleAlertConfirm이 호출되면서 자동으로 Tab이 reserve로 바뀝니다.
       fetchReservations(true);
     } else {
-      bookedSlots.value.push({ date: selectedDate.value, time: selectedTime.value, name: userName.value.trim() });
+      bookedSlots.value.push({ date: selectedDate.value, time: selectedTime.value, name: userName.value.trim(), location: dynamicLocation });
       await openAlert(`🎉 예약 확정!`);
-      // 💡 예약 성공 후 폼 초기화
       userName.value = ''; userDept.value = ''; userPhone.value = ''; selectedDate.value = null; selectedTime.value = null;
       lookupResults.value = []; hasSearched.value = false; fetchReservations(true);
     }
   } catch (error) { customAlert.value.show = false; await openAlert(`⚠️ 통신 오류`); }
 };
 
+// 날짜 제한 로직 (7/17 제외, 8/21까지만)
 const calculateFridaysForMonth = (m) => {
-  const fridays = []; let date = new Date(currentYear, m - 1, 1);
+  const fridays = []; 
+  let date = new Date(currentYear, m - 1, 1);
+  const cutoffDate = new Date(2026, 7, 21); // 8월 21일
+
   while (date.getMonth() === m - 1) {
-    if (date.getDay() === 5) fridays.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`);
+    if (date.getDay() === 5) {
+      const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      
+      // 1. 7월 17일 제외
+      if (formattedDate === '2026-07-17') {
+        date.setDate(date.getDate() + 1);
+        continue;
+      }
+      
+      // 2. 8월 21일 이후 금요일 제외
+      if (date > cutoffDate) {
+        break;
+      }
+      
+      fridays.push(formattedDate);
+    }
     date.setDate(date.getDate() + 1);
   }
   availableDates.value = fridays;
