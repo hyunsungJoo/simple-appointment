@@ -195,7 +195,7 @@ const nameInput = ref(null);
 const deptInput = ref(null);
 const phoneInput = ref(null);
 
-const timeSlots = ['1:00 - 1:30', '1:30 - 2:00', '2:00 - 2:30', '2:30 - 3:00', '3:30 - 4:00'];
+const timeSlots = ['1:00 - 1:30', '1:30 - 2:00', '2:00 - 2:30', '2:30 - 3:00', '3:00 - 3:30','3:30 - 4:00'];
 
 const customAlert = ref({ show: false, type: 'alert', message: '', resolve: null });
 
